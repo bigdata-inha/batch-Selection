@@ -12,7 +12,7 @@ import os
 import copy
 from tqdm import tqdm_notebook
 import math
-
+import torch.nn.functional as F
 
 class resnet_TwoPhase:
     def __init__(self, trainset=None, testset=None, lr=None, lr_decay = None, batch_norm=None, imbalance_ratio=None, mu=None):
@@ -69,6 +69,8 @@ class resnet_TwoPhase:
         self.grad_list = []
         self.temp_input_grad = np.zeros(trainset[0].__len__())
 
+        self.prob_list = []
+        self.training_prob = np.zeros(trainset[0].__len__())
 
     def first_phase_train(self, trainloader=None, current_epoch=None):
         '''
@@ -92,13 +94,13 @@ class resnet_TwoPhase:
         self.training_output = torch.tensor([]).cuda()
 
         temp_input_grad = self.temp_input_grad.copy()
-
+        temp_prob = self.training_prob.copy()
 
         for batch_idx, (inputs, targets, traindata_idx) in enumerate(trainloader):
 
             inputs = inputs.float().cuda()
             inputs, targets = inputs.to(self.device), targets.to(self.device)
-            inputs.requires_grad=True
+            inputs.requires_grad = True
 
             self.optimizer.zero_grad()
             outputs = self.net(inputs)
@@ -107,14 +109,21 @@ class resnet_TwoPhase:
             loss = ce_loss
 
             loss.backward()
-            #print(inputs.grad)
+            # print(inputs.grad)
 
             input_grad = inputs.grad
-            input_grad = input_grad.view(traindata_idx.shape[0],-1)
-            input_grad = torch.norm(input_grad, dim=1,p=2)
+            input_grad = input_grad.view(traindata_idx.shape[0], -1)
+            input_grad = torch.norm(input_grad, dim=1, p=1)
 
-            #print(input_grad.shape, traindata_idx.shape)
+            # print(input_grad.shape, traindata_idx.shape)
             temp_input_grad[traindata_idx] = input_grad.cpu()
+
+            prob = F.softmax(outputs, dim=1).cpu()
+
+            temp_shape = np.arange(outputs.__len__())
+
+            temp_prob[traindata_idx] = prob[temp_shape, targets].detach()
+            # print(prob[:,targets].shape)
 
             self.optimizer.step()
 
@@ -122,11 +131,11 @@ class resnet_TwoPhase:
 
             self.training_output = torch.cat(
                 (self.training_output.type(dtype=torch.long), predicted)
-                , dim =0)
+                , dim=0)
 
             self.training_target = torch.cat(
                 (self.training_target.type(dtype=torch.long), targets)
-                ,dim=0)
+                , dim=0)
 
             correct_idx = np.array(torch.where(predicted.eq(targets) == True)[0].cpu())
             wrong_idx = np.array(torch.where(predicted.eq(targets) == False)[0].cpu())
@@ -134,11 +143,11 @@ class resnet_TwoPhase:
             correct_idx = traindata_idx[correct_idx]
             wrong_idx = traindata_idx[wrong_idx]
 
-            #***count forgetting rate**** very important
-            if current_epoch == 1 :
+            # ***count forgetting rate**** very important
+            if current_epoch == 1:
                 self.prev_forgetting[correct_idx] = 1
 
-            elif current_epoch > 1 :
+            elif current_epoch > 1:
                 self.new_forgetting[correct_idx] = 1
                 self.new_forgetting[wrong_idx] = 0
 
@@ -171,41 +180,6 @@ class resnet_TwoPhase:
             self.grad_list.append(temp_input_grad)
 
 
-
-    def second_phase_train(self, trainloader=None, current_epoch=None):
-        print('\nEpoch: %d' % current_epoch)
-        print("Training...")
-        self.net.train()
-        train_loss = 0
-        correct = 0
-        total = 0
-        criterion = nn.CrossEntropyLoss()
-
-        '''
-        model load 후
-        calculate the 
-        '''
-        for batch_idx, (inputs, targets, data_idx) in enumerate(trainloader):
-            set_seed(2020)
-            inputs = inputs.float().cuda()
-            inputs, targets = inputs.to(self.device), targets.to(self.device)
-
-            self.optimizer.zero_grad()
-            outputs = self.net(inputs)
-            # basic cross entropy
-            ce_loss = criterion(outputs, targets)
-            loss = ce_loss
-            loss.backward()
-            self.optimizer.step()
-
-            train_loss += loss.item()
-            _, predicted = outputs.max(1)
-            total += targets.size(0)
-            correct += predicted.eq(targets).sum().item()
-            if current_epoch % 5 == 4:
-                if batch_idx % 100 == 99:  # print every 2000 mini-batches
-                    print('Training | [%d, %5d] loss: %.3f total accuracy : %.3f' %
-                          (current_epoch + 1, batch_idx + 1, train_loss / (batch_idx + 1), correct / total))
 
     def one_epoch_test(self, testloader=None, current_epoch=None):
         global best_acc
