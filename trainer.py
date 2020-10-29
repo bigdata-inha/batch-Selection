@@ -46,11 +46,11 @@ class resnet_TwoPhase:
                                                                        [0.2673, 0.2564, 0.2762])
                                                   ])
 
-        train_dataset = CustomDataset(self.trainset[0], self.trainset[1], transform=self.transform_train)
-        test_dataset = CustomDataset(self.testset[0], self.testset[1], transform=self.transform_test)
+        self.train_dataset = CustomDataset(self.trainset[0], self.trainset[1], transform=self.transform_train)
+        self.test_dataset = CustomDataset(self.testset[0], self.testset[1], transform=self.transform_test)
 
-        self.trainloader = torch.utils.data.DataLoader(train_dataset, batch_size=128, shuffle=True)
-        self.testloader = torch.utils.data.DataLoader(test_dataset, batch_size=100, shuffle=False)
+        self.trainloader = torch.utils.data.DataLoader(self.train_dataset, batch_size=128, shuffle=True)
+        self.testloader = torch.utils.data.DataLoader(self.test_dataset, batch_size=100, shuffle=False)
 
         self.training_class_acc = []
         self.test_class_acc = []
@@ -72,7 +72,22 @@ class resnet_TwoPhase:
         self.prob_list = []
         self.training_prob = np.zeros(trainset[0].__len__())
 
-    def first_phase_train(self, trainloader=None, current_epoch=None):
+    def calc_batchWeight(self, history):
+        temp_history = np.stack(history, axis=0)
+        var = np.std(temp_history, axis=0)
+
+        temp_term = var**2 / temp_history.__len__()
+        std_hat = np.sqrt(temp_term)
+
+        smoothing_constant = 0.00001
+        std_hat_e = std_hat + smoothing_constant
+        summation = np.sum(std_hat_e)
+
+        output = std_hat_e / summation
+        print(np.sum(output))
+        return output
+
+    def first_phase_train(self, traindata=None, current_epoch=None):
         '''
 
         :param model: model trained with weighted sampling data
@@ -93,8 +108,24 @@ class resnet_TwoPhase:
         self.training_target = torch.tensor([]).cuda()
         self.training_output = torch.tensor([]).cuda()
 
+
         temp_input_grad = self.temp_input_grad.copy()
         temp_prob = self.training_prob.copy()
+        '''
+        temp_prob = np.array([0.7,0.3])
+        temp_prob2 = np.full(49998, 0)
+        prob = np.concatenate((temp_prob, temp_prob2), axis =0)
+        '''
+        if current_epoch > 15 :
+            prob = self.calc_batchWeight(self.prob_list)
+
+            batchWeight = torch.utils.data.WeightedRandomSampler(prob, num_samples=50000)
+
+            trainloader = torch.utils.data.DataLoader(traindata, batch_size=128, sampler = batchWeight)
+
+        else :
+            trainloader = torch.utils.data.DataLoader(traindata, batch_size=128, shuffle=True)
+
 
         for batch_idx, (inputs, targets, traindata_idx) in enumerate(trainloader):
 
@@ -176,9 +207,9 @@ class resnet_TwoPhase:
         self.cumulative_training_target = torch.cat((self.cumulative_training_target.type(dtype=torch.long),
                                                     self.training_target), dim=0)
 
-        if current_epoch < 100:
-            self.grad_list.append(temp_input_grad)
 
+        self.grad_list.append(temp_input_grad)
+        self.prob_list.append(temp_prob)
 
 
     def one_epoch_test(self, testloader=None, current_epoch=None):
@@ -250,7 +281,7 @@ class resnet_TwoPhase:
         self.scheduler = optim.lr_scheduler.MultiStepLR(optimizer=self.optimizer, milestones=self.lr_decay, gamma=0.1)
 
         for epoch in range(epochs):
-            self.first_phase_train(self.trainloader, epoch)
+            self.first_phase_train(self.train_dataset, epoch)
             self.one_epoch_test(self.testloader, epoch)
             self.scheduler.step()
 
