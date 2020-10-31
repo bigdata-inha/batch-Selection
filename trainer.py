@@ -91,17 +91,18 @@ class resnet_TwoPhase:
         temp_history = np.stack(history, axis=0)
         var = np.std(temp_history, axis=0)
 
-        mean_weight = np.arange(1,temp_history.__len__())
-        mean_weight = 1/mean_weight
+        #mean_weight = np.arange(1,temp_history.__len__())
+        #mean_weight = 1/mean_weight
 
-        wAvg = np.average(temp_history, weights=mean_weight, axis=0)
+        #wAvg = np.average(temp_history, weights=mean_weight, axis=0)
 
         summation = np.sum(var)
+
         output = var / summation
         print(np.sum(output))
         return output
 
-    def first_phase_train(self, traindata=None, current_epoch=None):
+    def first_phase_train(self, traindata=None, current_epoch=None, batch_selection = None):
         '''
 
         :param model: model trained with weighted sampling data
@@ -130,10 +131,10 @@ class resnet_TwoPhase:
         temp_prob2 = np.full(49998, 0)
         prob = np.concatenate((temp_prob, temp_prob2), axis =0)
         '''
-        if current_epoch > 15 :
+        if current_epoch > 10 and batch_selection == True:
             prob = self.calc_batchWeight(self.prob_list)
 
-            prob = self.calc_mybatch(self.grad_list)
+            #prob = self.calc_mybatch(self.grad_list)
 
             batchWeight = torch.utils.data.WeightedRandomSampler(prob, num_samples=50000)
 
@@ -295,9 +296,10 @@ class resnet_TwoPhase:
                                    weight_decay=5e-4)
 
         self.scheduler = optim.lr_scheduler.MultiStepLR(optimizer=self.optimizer, milestones=self.lr_decay, gamma=0.1)
+        batch_selection = False
 
         for epoch in range(epochs):
-            self.first_phase_train(self.train_dataset, epoch)
+            self.first_phase_train(self.train_dataset, epoch, batch_selection)
             self.one_epoch_test(self.testloader, epoch)
             self.scheduler.step()
 
