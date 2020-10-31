@@ -87,6 +87,20 @@ class resnet_TwoPhase:
         print(np.sum(output))
         return output
 
+    def calc_mybatch(self, history):
+        temp_history = np.stack(history, axis=0)
+        var = np.std(temp_history, axis=0)
+
+        mean_weight = np.arange(1,temp_history.__len__())
+        mean_weight = 1/mean_weight
+
+        wAvg = np.average(temp_history, weights=mean_weight, axis=0)
+
+        summation = np.sum(var)
+        output = var / summation
+        print(np.sum(output))
+        return output
+
     def first_phase_train(self, traindata=None, current_epoch=None):
         '''
 
@@ -118,6 +132,8 @@ class resnet_TwoPhase:
         '''
         if current_epoch > 15 :
             prob = self.calc_batchWeight(self.prob_list)
+
+            prob = self.calc_mybatch(self.grad_list)
 
             batchWeight = torch.utils.data.WeightedRandomSampler(prob, num_samples=50000)
 
