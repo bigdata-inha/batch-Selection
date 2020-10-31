@@ -29,5 +29,5 @@ balanced_testset = [test_X, test_Y]
 
 #forgettable_data = [forgettable_X, forgettable_Y]
 
-trainer_resnet = resnet_TwoPhase(trainset=balanced_trainset, testset=balanced_testset, lr=0.1, lr_decay=[60,80], imbalance_ratio="L1EasyWAvgRm99")
-trainer_resnet.first_phase_run(epochs = 100)
+trainer_resnet = resnet_TwoPhase(trainset=balanced_trainset, testset=balanced_testset, lr=0.1, lr_decay=[25,37], imbalance_ratio="L1EasyWAvgRm99")
+trainer_resnet.first_phase_run(epochs = 50)
